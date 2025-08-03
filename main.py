@@ -25,22 +25,40 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Токен бота
+# Токен бота (берётся из переменной окружения)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Инициализация бота
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# Функция для логирования действий пользователей
-def log_user_activity(user: types.User, action: str):
+# 🔐 Укажите ваш Telegram ID, чтобы получать уведомления
+OWNER_ID = 1290042252  # ← Ваш ID (из @userinfobot)
+# Функция для логирования и отправки уведомления владельцу
+async def log_and_notify(user: types.User, action: str):
     try:
         user_info = f"ID: {user.id}, Username: @{user.username if user.username else 'нет'}, Name: {user.full_name}"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_message = f"[{timestamp}] {user_info} - {action}"
+        
+        # Логируем в файл
         with open("user_activity.log", "a", encoding="utf-8") as f:
             f.write(log_message + "\n")
         logger.info(log_message)
+
+        # Отправляем уведомление владельцу
+        notify_text = f"👤 <b>Пользователь:</b> {user.full_name}\n"
+        notify_text += f"🆔 <b>ID:</b> {user.id}\n"
+        if user.username:
+            notify_text += f"👤 <b>Username:</b> @{user.username}\n"
+        notify_text += f"🕒 <b>Время:</b> {timestamp}\n"
+        notify_text += f"📌 <b>Действие:</b> {action}"
+
+        try:
+            await bot.send_message(OWNER_ID, notify_text, parse_mode=ParseMode.HTML)
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомление владельцу: {e}")
+
     except Exception as e:
         logger.error(f"Ошибка при логировании: {e}")
 
@@ -70,6 +88,7 @@ class BotData:
 
 • <b>Работа с нейросетями</b> - генерация картинок и другое""",
             "resume": """📄 <b>Мое резюме</b>
+            
 <u>Опыт работы:</u>
 • <b>2023-н.в.</b>: Freelance Designer (удаленная работа)
 
@@ -151,17 +170,16 @@ class BotData:
 3. Бюджет (если есть)
 4. Сроки
 5. Ваш id для связи
-
-Можете написать в смс сейчас здесь - если хотите сделать заказ через бота
+Напиши в смс здесь - если хотите заказать услугу через бота
 
 Я свяжусь с вами в течение 24 часов!
+
 • Срочный заказ +30% к стоимости — пишите @karinadesignspb
 • Пакетное предложение (скидка до 20%)""",
             "order_thanks": """✅ <b>Спасибо за заказ!</b>
 Ваша заявка принята. Я свяжусь с вами в ближайшее время для обсуждения деталей.
 До связи! 👋""",
             "referral": """🎁 <b>Акция "Приведи друга"</b>
-            
 Приведи клиента и получи <b>10%</b> от суммы его первого заказа на свой счет!
 
 Как это работает:
@@ -200,17 +218,14 @@ class BotData:
 4. Логотип и фирменные цвета (если уже есть)
 5. Бюджет и сроки (если определены)""",
             "share_bot": """📢 <b>Поделиться ботом</b>
-            
 <b>Ссылка для приглашения:</b>
 https://t.me/KARINA_DESIGN_SPB_bot
-
 <b>Что можно рассказать друзьям:</b>
 • Профессиональный дизайн сайтов и логотипов
 • Работа с Tilda и другими платформами
 • Создание Telegram ботов
 • Работа с нейросетями
 • Удаленная работа из любой точки мира
-
 🎁 <b>Бонус:</b> За каждого приведенного клиента вы получаете 10% от суммы его первого заказа!""",
             "tilda_sites": """🌐 <b>Мои сайты на Tilda</b>
             
@@ -231,7 +246,6 @@ https://t.me/KARINA_DESIGN_SPB_bot
 • Адаптивная верстка и современный UI
 • Ссылка: <a href="https://ecofeedgroup.ru">Перейти на сайт</a>""",
             "ai_work": """ <b>Работа с нейросетями</b>
-            
 Я создаю уникальные изображения и видео с помощью ИИ для:
 • Рекламы и соцсетей
 • Артов и персонажей
@@ -241,7 +255,7 @@ https://t.me/KARINA_DESIGN_SPB_bot
 ✅ Быстро, качественно, в высоком разрешении
 ✅ Уникальные стили под ваш запрос
 
-👉 Перейти к просмотру примеров: <a href="https://www.avito.ru/sankt-peterburg/igry_pristavki_i_programmy/generatsiya_izobrazheniy_i_video_cherez_ii_7495771777">Заказать на Avito</a>""",
+👉 Перейти к просмотру работу: <a href="https://www.avito.ru/sankt-peterburg/igry_pristavki_i_programmy/generatsiya_izobrazheniy_i_video_cherez_ii_7495771777">Заказать на Avito</a>""",
             "programming": """💻 <b>Программирование</b>
             
 Опыт в разработке — более 5 лет.
@@ -283,11 +297,14 @@ https://t.me/KARINA_DESIGN_SPB_bot
         self.orders_file = "orders.txt"
         self.subscribers_file = "subscribers.txt"
 
+# Создание экземпляра данных бота
 bot_data = BotData()
 
+# Состояния пользователей
 user_order_state = {}
 user_question_state = {}
 
+# Функция для сохранения заказа
 def save_order(user_id: int, username: str, order_text: str):
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -302,6 +319,7 @@ def save_order(user_id: int, username: str, order_text: str):
     except Exception as e:
         logger.error(f"Ошибка при сохранении заказа: {e}")
 
+# Функция для сохранения вопроса
 def save_question(user_id: int, username: str, question_text: str):
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -316,6 +334,7 @@ def save_question(user_id: int, username: str, question_text: str):
     except Exception as e:
         logger.error(f"Ошибка при сохранении вопроса: {e}")
 
+# Управление подписчиками
 def add_subscriber(user_id: int, username: str):
     try:
         with open(bot_data.subscribers_file, "a", encoding="utf-8") as f:
@@ -358,6 +377,7 @@ def get_subscribers():
         logger.error(f"Ошибка при получении подписчиков: {e}")
         return []
 
+# Рассылка уведомлений
 async def send_notification_to_subscribers(message_text: str):
     subscribers = get_subscribers()
     success_count = 0
@@ -370,6 +390,7 @@ async def send_notification_to_subscribers(message_text: str):
             logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
     logger.info(f"Уведомление отправлено {success_count} из {len(subscribers)}")
 
+# Основная клавиатура
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         resize_keyboard=True,
@@ -382,38 +403,22 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         ]
     )
 
+# Обработчики команд
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    log_user_activity(message.from_user, "Запустил бота")
+    log_and_notify(message.from_user, "Запустил бота")
     user_order_state[message.from_user.id] = None
     user_question_state[message.from_user.id] = None
     await message.answer(bot_data.texts["greeting"], reply_markup=get_main_keyboard())
 
-# НОВАЯ КОМАНДА: /logs — отправляет файл логов
-@dp.message(Command("logs"))
-async def send_logs(message: types.Message):
-    # ЗАМЕНИТЕ 123456789 НА СВОЙ Telegram ID
-    if message.from_user.id == 1290042252:
-        try:
-            if os.path.exists("user_activity.log"):
-                await message.answer_document(
-                    FSInputFile("user_activity.log"),
-                    caption="📄 Последние действия пользователей"
-                )
-            else:
-                await message.answer("⚠️ Файл логов не найден.")
-        except Exception as e:
-            await message.answer(f"❌ Ошибка: {e}")
-    else:
-        await message.answer("🔐 У вас нет доступа к этой команде.")
-
 @dp.message(F.text == "Портфолио 🎨")
 async def portfolio_handler(message: types.Message):
-    log_user_activity(message.from_user, "Открыл портфолио")
+    log_and_notify(message.from_user, "Открыл портфолио")
     await message.answer(bot_data.texts["portfolio"])
+    # Кнопки: сначала Tilda, потом три новых — нейросети, программирование, боты
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Figma", url="https://www.figma.com/design/TetYyMheMnoAnRSQiAvhu9/Work---Portfolio?node-id=0-1&t=VfbIusbOFb1gJMm5-1")],
-        [InlineKeyboardButton(text="Behance", url="https://www.behance.net/karina_design_site")],
+        [InlineKeyboardButton(text="Figma", url="https://www.figma.com/design/TetYyMheMnoAnRSQiAvhu9/Work-Portfolio?node-id=0-1&t=VfbIusbOFb1gJMm5-1")],
+        [InlineKeyboardButton(text="Behance", url="https://www.behance.net/...")],
         [InlineKeyboardButton(text="Сайты на Tilda", callback_data="tilda_sites")],
         [InlineKeyboardButton(text="Работа с нейросетями", callback_data="ai_work")],
         [InlineKeyboardButton(text="Программирование", callback_data="programming")],
@@ -423,31 +428,31 @@ async def portfolio_handler(message: types.Message):
 
 @dp.callback_query(F.data == "tilda_sites")
 async def tilda_sites_callback(callback: types.CallbackQuery):
-    log_user_activity(callback.from_user, "Просмотрел сайты на Tilda")
+    log_and_notify(callback.from_user, "Просмотрел сайты на Tilda")
     await callback.message.answer(bot_data.texts["tilda_sites"])
     await callback.answer()
 
 @dp.callback_query(F.data == "ai_work")
 async def ai_work_callback(callback: types.CallbackQuery):
-    log_user_activity(callback.from_user, "Просмотрел работу с нейросетями")
+    log_and_notify(callback.from_user, "Просмотрел работу с нейросетями")
     await callback.message.answer(bot_data.texts["ai_work"], parse_mode=ParseMode.HTML)
     await callback.answer()
 
 @dp.callback_query(F.data == "programming")
 async def programming_callback(callback: types.CallbackQuery):
-    log_user_activity(callback.from_user, "Просмотрел раздел программирования")
+    log_and_notify(callback.from_user, "Просмотрел раздел программирования")
     await callback.message.answer(bot_data.texts["programming"], parse_mode=ParseMode.HTML)
     await callback.answer()
 
 @dp.callback_query(F.data == "telegram_bots")
 async def telegram_bots_callback(callback: types.CallbackQuery):
-    log_user_activity(callback.from_user, "Просмотрел раздел Telegram-ботов")
+    log_and_notify(callback.from_user, "Просмотрел раздел Telegram-ботов")
     await callback.message.answer(bot_data.texts["telegram_bots"], parse_mode=ParseMode.HTML)
     await callback.answer()
 
 @dp.message(F.text == "Резюме 📄")
 async def resume_handler(message: types.Message):
-    log_user_activity(message.from_user, "Запросил резюме")
+    log_and_notify(message.from_user, "Запросил резюме")
     try:
         await message.answer(bot_data.texts["resume"])
         if bot_data.resume_file_id:
@@ -464,7 +469,7 @@ async def resume_handler(message: types.Message):
 
 @dp.message(F.text == "Услуги 💼")
 async def services_handler(message: types.Message):
-    log_user_activity(message.from_user, "Просмотрел услуги")
+    log_and_notify(message.from_user, "Просмотрел услуги")
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Заказать", callback_data="order_service")]
     ])
@@ -472,7 +477,7 @@ async def services_handler(message: types.Message):
 
 @dp.message(F.text == bot_data.reviews_button)
 async def reviews_handler(message: types.Message):
-    log_user_activity(message.from_user, "Просмотрел отзывы")
+    log_and_notify(message.from_user, "Просмотрел отзывы")
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Оставить отзыв", url="https://t.me/...")],
         [InlineKeyboardButton(text="Все отзывы", url="https://vk.com/...")]
@@ -481,7 +486,7 @@ async def reviews_handler(message: types.Message):
 
 @dp.message(F.text == "Контакты 📱")
 async def contacts_handler(message: types.Message):
-    log_user_activity(message.from_user, "Просмотрел контакты")
+    log_and_notify(message.from_user, "Просмотрел контакты")
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Написать", url="https://t.me/karinadesignspb")]
     ])
@@ -489,7 +494,7 @@ async def contacts_handler(message: types.Message):
 
 @dp.message(F.text == bot_data.order_button)
 async def order_handler(message: types.Message):
-    log_user_activity(message.from_user, "Начал оформление заказа")
+    log_and_notify(message.from_user, "Начал оформление заказа")
     user_order_state[message.from_user.id] = True
     text = bot_data.texts["order"] + """
 📎 <b>Вы можете прикрепить файл с ТЗ или дополнительными материалами к заказу!</b>
@@ -498,12 +503,12 @@ async def order_handler(message: types.Message):
 
 @dp.message(F.text == "❓ FAQ")
 async def faq_handler(message: types.Message):
-    log_user_activity(message.from_user, "Просмотрел FAQ")
+    log_and_notify(message.from_user, "Просмотрел FAQ")
     await message.answer(bot_data.texts["faq"], parse_mode=ParseMode.HTML)
 
 @dp.message(F.text == "📢 Поделиться ботом")
 async def share_bot_handler(message: types.Message):
-    log_user_activity(message.from_user, "Поделился ботом")
+    log_and_notify(message.from_user, "Поделился ботом")
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Поделиться ссылкой", switch_inline_query="checkout")]
     ])
@@ -514,12 +519,12 @@ async def process_order_details(message: types.Message):
     state = user_order_state.get(message.from_user.id)
     question_state = user_question_state.get(message.from_user.id)
     if state is True:
-        log_user_activity(message.from_user, f"Отправил заказ: {message.text}")
+        log_and_notify(message.from_user, f"Отправил заказ: {message.text}")
         save_order(message.from_user.id, message.from_user.username or "нет", message.text)
         await message.answer("Прикрепите файлы или нажмите /done.")
         user_order_state[message.from_user.id] = "file"
     elif question_state is True:
-        log_user_activity(message.from_user, f"Задал вопрос: {message.text}")
+        log_and_notify(message.from_user, f"Задал вопрос: {message.text}")
         save_question(message.from_user.id, message.from_user.username or "нет", message.text)
         await message.answer("✅ Вопрос отправлен!", reply_markup=get_main_keyboard())
         user_question_state[message.from_user.id] = None
@@ -531,7 +536,7 @@ async def process_order_file(message: types.Message):
     state = user_order_state.get(message.from_user.id)
     if state in [True, "file"]:
         file_name = message.document.file_name if message.document else "photo.jpg"
-        log_user_activity(message.from_user, f"Прикрепил файл: {file_name}")
+        log_and_notify(message.from_user, f"Прикрепил файл: {file_name}")
         with open(bot_data.orders_file, "a", encoding="utf-8") as f:
             f.write(f"Файл: {file_name}\n")
         await message.answer("✅ Файл прикреплён. Можете отправить ещё или /done.")
@@ -541,17 +546,18 @@ async def process_order_file(message: types.Message):
 async def finish_order_files(message: types.Message):
     state = user_order_state.get(message.from_user.id)
     if state in [True, "file"]:
-        log_user_activity(message.from_user, "Завершил заказ")
+        log_and_notify(message.from_user, "Завершил заказ")
         await message.answer(bot_data.texts["order_thanks"], reply_markup=get_main_keyboard())
         user_order_state[message.from_user.id] = None
 
 @dp.callback_query(F.data == "order_service")
 async def order_service_callback(callback: types.CallbackQuery):
-    log_user_activity(callback.from_user, "Нажал 'Заказать'")
+    log_and_notify(callback.from_user, "Нажал 'Заказать'")
     user_order_state[callback.from_user.id] = True
     await callback.message.answer(bot_data.texts["order"] + "\n🎁 Скидка 10% при упоминании друга!")
     await callback.answer()
 
+# Запуск бота
 async def main():
     try:
         logger.info("Starting bot...")
