@@ -34,7 +34,6 @@ dp = Dispatcher()
 
 # 🔐 Укажите ваш Telegram ID, чтобы получать уведомления
 OWNER_ID = 1290042252  # ← Ваш ID (из @userinfobot)
-# Функция для логирования и отправки уведомления владельцу
 
 # Функция для логирования и отправки уведомления владельцу
 async def log_and_notify(user: types.User, action: str):
@@ -45,7 +44,7 @@ async def log_and_notify(user: types.User, action: str):
         
         # Логируем в файл
         with open("user_activity.log", "a", encoding="utf-8") as f:
-            f.write(log_message + "\n")  # ← Добавлен \n
+            f.write(log_message + "\n")
         logger.info(log_message)
 
         # Отправляем уведомление владельцу
@@ -57,7 +56,7 @@ async def log_and_notify(user: types.User, action: str):
         notify_text += f"📌 <b>Действие:</b> {action}"
 
         try:
-            await bot.send_message(OWNER_ID, notify_text, parse_mode=ParseMode.HTML)  # ← Добавлен await
+            await bot.send_message(OWNER_ID, notify_text, parse_mode=ParseMode.HTML)
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление владельцу: {e}")
 
@@ -507,6 +506,22 @@ async def order_handler(message: types.Message):
 async def faq_handler(message: types.Message):
     log_and_notify(message.from_user, "Просмотрел FAQ")
     await message.answer(bot_data.texts["faq"], parse_mode=ParseMode.HTML)
+
+@dp.message(Command("logs"))
+async def send_logs(message: types.Message):
+    if message.from_user.id == OWNER_ID:
+        try:
+            if os.path.exists("user_activity.log"):
+                await message.answer_document(
+                    FSInputFile("user_activity.log"),
+                    caption="📄 Последние действия пользователей"
+                )
+            else:
+                await message.answer("⚠️ Файл логов не найден.")
+        except Exception as e:
+            await message.answer(f"❌ Ошибка: {e}")
+    else:
+        await message.answer("🔐 У вас нет доступа к этой команде.")
 
 @dp.message(F.text == "📢 Поделиться ботом")
 async def share_bot_handler(message: types.Message):
