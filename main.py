@@ -13,92 +13,131 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from datetime import datetime
 import os
+import sqlite3
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("user_activity.log"),
-        logging.StreamHandler()
-    ]
-)
+# --- Настройка логирования в консоль ---
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Токен бота (берётся из переменной окружения)
+# --- Токен бота ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("Не установлен BOT_TOKEN в переменных окружения")
 
-# Инициализация бота
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
+# --- ID владельца ---
+OWNER_ID = 1290042252  # Замените, если нужно
 
-# 🔐 Укажите ваш Telegram ID, чтобы получать уведомления
-OWNER_ID = 1290042252  # ← Ваш ID (из @userinfobot)
+# --- Путь к базе данных ---
+DATABASE = "logs.db"
 
-# Функция для логирования и отправки уведомления владельцу
+# --- Инициализация базы данных ---
+def init_db():
+    """Создаёт таблицы: user_logs и subscribers"""
+    with sqlite3.connect(DATABASE) as conn:
+        # Таблица логов
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                full_name TEXT,
+                action TEXT NOT NULL
+            )
+        """)
+        # Таблица подписчиков
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscribers (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                full_name TEXT,
+                subscribed_at TEXT NOT NULL
+            )
+        """)
+
+# --- Запись в базу данных ---
+def log_to_db(user: types.User, action: str):
+    """Сохраняет действие пользователя в SQLite"""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with sqlite3.connect(DATABASE) as conn:
+            conn.execute(
+                "INSERT INTO user_logs (timestamp, user_id, username, full_name, action) VALUES (?, ?, ?, ?, ?)",
+                (timestamp, user.id, user.username, user.full_name, action)
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при записи в БД: {e}")
+
+# --- Получение логов из базы ---
+def get_logs_from_db(limit=50):
+    """Возвращает последние N записей из БД"""
+    try:
+        with sqlite3.connect(DATABASE) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT * FROM user_logs 
+                ORDER BY id DESC 
+                LIMIT ?
+            """, (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        logger.error(f"Ошибка при чтении из БД: {e}")
+        return []
+
+# --- Логирование + уведомление владельцу ---
 async def log_and_notify(user: types.User, action: str):
     try:
-        user_info = f"ID: {user.id}, Username: @{user.username if user.username else 'нет'}, Name: {user.full_name}"
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_message = f"[{timestamp}] {user_info} - {action}"
-        
-        # Логируем в файл
-        with open("user_activity.log", "a", encoding="utf-8") as f:
-            f.write(log_message + "\n")
-        logger.info(log_message)
+        # 1. Сохраняем в БД
+        log_to_db(user, action)
 
-        # Отправляем уведомление владельцу
-        notify_text = f"👤 <b>Пользователь:</b> {user.full_name}\n"
-        notify_text += f"🆔 <b>ID:</b> {user.id}\n"
+        # 2. Лог в консоль
+        user_info = f"ID: {user.id}, Username: @{user.username or 'нет'}, Name: {user.full_name}"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info(f"[{timestamp}] {user_info} - {action}")
+
+        # 3. Уведомление владельцу
+        notify_text = (
+            f"👤 <b>Пользователь:</b> {user.full_name}\n"
+            f"🆔 <b>ID:</b> {user.id}\n"
+        )
         if user.username:
             notify_text += f"👤 <b>Username:</b> @{user.username}\n"
-        notify_text += f"🕒 <b>Время:</b> {timestamp}\n"
-        notify_text += f"📌 <b>Действие:</b> {action}"
-
+        notify_text += (
+            f"🕒 <b>Время:</b> {timestamp}\n"
+            f"📌 <b>Действие:</b> {action}"
+        )
         try:
             await bot.send_message(OWNER_ID, notify_text, parse_mode=ParseMode.HTML)
         except Exception as e:
-            logger.error(f"Не удалось отправить уведомление владельцу: {e}")
+            logger.error(f"Не удалось отправить уведомление: {e}")
 
     except Exception as e:
         logger.error(f"Ошибка при логировании: {e}")
 
-# Данные бота
+# --- Данные бота ---
 class BotData:
     def __init__(self):
         self.texts = {
             "greeting": """
 Привет!👋
-
 Я — Карина, дизайнер. 
-
 Я работаю онлайн и готова помочь с вашим проектом в любой точке мира!
-
 Выберите интересующий раздел:""",
             "portfolio": """ <b>Мое портфолио</b>
-            
 Мои работы в различных направлениях:
-
 • <b>Веб-дизайн</b> - сайты, лендинги
-
 • <b>Графический дизайн</b> - логотипы, брендбуки, инфографика для маркетплейсов, презентации, баннеры
-
 • <b>UI/UX дизайн</b> - мобильные приложения, интерфейсы 
-
 • <b>Программирование и другое</b> - телеграмм-боты, backend сайтов, добавление платежей, подключение домена и т.п. на Tilda
-
 • <b>Работа с нейросетями</b> - генерация картинок и другое""",
             "resume": """📄 <b>Мое резюме</b>
-            
 <u>Опыт работы:</u>
 • <b>2023-н.в.</b>: Freelance Designer (удаленная работа)
-
 <u>Курсы:</u>
 • Курс Freedom "Веб-разработка на Tilda"
 • Курс Yudaev School по Figma
 • Практический опыт +3 года
 • Участник кейс-чемпионата от Альфа банка (роль капитана и дизайнера) (презентация и прототип приложения)  
-
 <u>Ключевые навыки:</u>
 • Веб-дизайн (дизайн сайтов, seo-оптимизация, сайты на Tilda)
 • Графический дизайн (логотипы, айдентика)  
@@ -111,60 +150,44 @@ class BotData:
 • Опыт удалённой работы и фриланса (биржи, клиентские проекты)  
 • Умение работать в срок и оперативно вносить правки  
 • Администрирование сайта на постоянной основе  
-
 <u>Дополнительные языки:</u>
 • Английский - Upper Intermediate (работаю с иностранными клиентами)""",
             "services": """💼 <b>Мои услуги</b>
-            
 1. <b>Графический дизайн</b>
 - Инфографика для маркетплейсов - от 500 ₽ слайд
 - Разработка логотипов и фирменного стиля - от 2 000 ₽
 - Дизайн полиграфии (визитки, буклеты) - от 2 000 ₽
-
 2. <b>Веб-дизайн</b>
 - Создание сайтов (лендинги, корпоративные) - от 10 000 ₽
 - Редизайн интерфейсов - от 20 000 ₽
 - UI/UX дизайн приложений - от 30 000 ₽
-
 3. <b>Дизайн презентаций</b>
 - Корпоративные презентации - от 3 000 ₽ 
-
 4. <b>Работа с нейросетями</b>
 - Обсуждается индивидуально 
-
 5. <b>Программирование - работа с кодом</b>
 - Обсуждается индивидуально
-
 6. <b>Создание Telegram ботов</b>
 - Обсуждается индивидуально
-
 🔹 <b>Скидка 10%</b> на первый заказ через бота!
 🔹 Работаю онлайн
 🔹 Точная цена обсуждается индивидуально""",
             "contacts": """📱 <b>Мои контакты</b>
-            
 Я работаю удаленно и доступна для проектов из любой точки мира!
-
 <u>Свяжитесь со мной:</u>
 • Telegram: @karinadesignspb
-
 <u>Часы работы:</u>
 Пн-Пт: 10:00-18:00 (МСК)
 Сб-Вс: по договоренности""",
             "reviews": """⭐ <b>Отзывы клиентов</b>
-            
 1. <b>Юлия Сергеевна, сайт косметологии:</b>
 "Спасибо огромное Карине за разработку сайта моей студии, спасибо за терпение и учет моих пожеланий, переделок, редактирований и т.д. Действительно мастер своего дела, а так же чуткий и понимающий человек, который всегда был на связи и с пониманием относился к моим просьбам.👍👏💐"
-
 2. <b>Андрей, баннер для сайта:</b>
 "Отличное качество и соблюдение сроков."
-
 3. <b>Михаил, инвестор:</b>
 "Карина, благодарю за профессиональный подход, приятно с Вами сотрудничать, нас приняли в Сколково" """,
             "order": """✏️ <b>Оформить заказ</b>
-            
 Вы можете оформить заказ через бота или написать мне в личные сообщения @karinadesignspb
-
 Опишите ваш проект:
 1. Тип работы (логотип, сайт и т.д.)
 2. Ваши пожелания
@@ -172,9 +195,7 @@ class BotData:
 4. Сроки
 5. Ваш id для связи
 Напиши в смс здесь - если хотите заказать услугу через бота
-
 Я свяжусь с вами в течение 24 часов!
-
 • Срочный заказ +30% к стоимости — пишите @karinadesignspb
 • Пакетное предложение (скидка до 20%)""",
             "order_thanks": """✅ <b>Спасибо за заказ!</b>
@@ -182,21 +203,18 @@ class BotData:
 До связи! 👋""",
             "referral": """🎁 <b>Акция "Приведи друга"</b>
 Приведи клиента и получи <b>10%</b> от суммы его первого заказа на свой счет!
-
 Как это работает:
 1. Расскажи другу про мой бот
 2. Друг делает заказ и называет твой @username
 3. После оплаты его заказа ты получаешь вознаграждение
 Можно использовать для своих будущих заказов!""",
             "faq": """❓ <b>Часто задаваемые вопросы</b>
-            
 <b>🔹 Каковы сроки выполнения работ?</b>
 Сроки зависят от сложности проекта:
 • Логотип: 1-3 дня
 • Сайт: 5-30 дней
 • Инфографика: 1-3 дня
 Точные сроки оговариваются индивидуально после обсуждения всех деталей.
-
 <b>🔹 Как происходит процесс работы?</b>
 1. Вы оставляете заявку через бота или пишете мне напрямую
 2. Мы обсуждаем детали проекта, цели, бюджет и сроки
@@ -204,13 +222,10 @@ class BotData:
 4. Создаю концепции/макеты
 5. Вы вносите правки (до 2-х раундов бесплатно)
 6. Я дорабатываю и передаю финальные файлы
-
 <b>🔹 Можно ли внести правки после завершения проекта?</b>
 В рамках проекта включены 2 раунда правок бесплатно. Дополнительные правки оплачиваются отдельно (500₽ за раунд).
-
 <b>🔹 Работаете ли вы с иностранными клиентами?</b>
 Да, работаю онлайн с клиентами из разных стран. Общение может вестись на русском или английском языках (Upper Intermediate).
-
 <b>🔹 Что нужно для начала работы?</b>
 Для начала работы мне нужно:
 1. Краткое описание вашего проекта
@@ -229,19 +244,15 @@ https://t.me/KARINA_DESIGN_SPB_bot
 • Удаленная работа из любой точки мира
 🎁 <b>Бонус:</b> За каждого приведенного клиента вы получаете 10% от суммы его первого заказа!""",
             "tilda_sites": """🌐 <b>Мои сайты на Tilda</b>
-            
 <b>Последние проекты:</b>
-
 🏗 <b>Element Klinker — поставки стройматериалов</b>
 • Продающий лендинг с адаптивным дизайном
 • SEO-оптимизация и быстрая загрузка
 • Ссылка: <a href="https://elementklinker.ru">Перейти на сайт</a>
-
 🚚 <b>Ecofeed Logistics — грузоперевозки</b>
 • Минималистичный дизайн с акцентом на услуги
 • Интеграция контактов и форм обратной связи
 • Ссылка: <a href="https://ecofeed-logistics.ru/">Перейти на сайт</a>
-
 🌾 <b>Ecofeed Group — кормовые добавки для животных</b>
 • Многостраничный сайт с разделами продукции и партнеров
 • Адаптивная верстка и современный UI
@@ -252,22 +263,17 @@ https://t.me/KARINA_DESIGN_SPB_bot
 • Артов и персонажей
 • Фоновые изображения
 • Визуализации идей и другое
-
 ✅ Быстро, качественно, в высоком разрешении
 ✅ Уникальные стили под ваш запрос
-
 👉 Перейти к просмотру работу: <a href="https://www.avito.ru/sankt-peterburg/igry_pristavki_i_programmy/generatsiya_izobrazheniy_i_video_cherez_ii_7495771777">Заказать на Avito</a>""",
             "programming": """💻 <b>Программирование</b>
-            
 Опыт в разработке — более 5 лет.
-
 Языки и технологии:
 • Python (включая библиотеки: aiogram, Django, Flask)
 • HTML, CSS, JavaScript
 • Работа с CSV, JSON, XML
 • Базы данных: SQLite, PostgreSQL (через Python)
 • API интеграции (Telegram, Avito, Yandex и др.)
-
 Что могу сделать:
 • Парсинг данных с сайтов
 • Автоматизация задач
@@ -275,20 +281,16 @@ https://t.me/KARINA_DESIGN_SPB_bot
 • Настройка веб-сайтов на Tilda + кастомный код
 • Верстка и адаптация под мобильные устройства 
 • И другое
-
 Пишите — обсудим ваш проект!""",
             "telegram_bots": """🤖 <b>Telegram-боты</b>
 Разрабатываю ботов на Python с использованием библиотеки aiogram.
-
 Что умею:
 • Создавать многофункциональных ботов (заказы, опросы, рассылки)
 • Подключать базы данных (SQLite, PostgreSQL)
 • Интегрировать платежи (через ЮKassa, СБП, крипту)
 • Добавлять inline-кнопки, меню, файлы
 • Подключать к веб-сайтам и CRM
-
 Примеры: боты для заказа услуг, личные помощники, боты-визитки, боты с админ-панелью.
-
 Готова реализовать вашу идею! Пишите @karinadesignspb""",
         }
         self.resume_pdf_path = "Резюме Карина.pdf"
@@ -296,16 +298,16 @@ https://t.me/KARINA_DESIGN_SPB_bot
         self.order_button = "🛍️ Заказать"
         self.reviews_button = "⭐ Отзывы"
         self.orders_file = "orders.txt"
+        self.questions_file = "questions.txt"
         self.subscribers_file = "subscribers.txt"
 
-# Создание экземпляра данных бота
 bot_data = BotData()
 
-# Состояния пользователей
+# --- Состояния ---
 user_order_state = {}
 user_question_state = {}
 
-# Функция для сохранения заказа
+# --- Сохранение заказа ---
 def save_order(user_id: int, username: str, order_text: str):
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -316,69 +318,56 @@ def save_order(user_id: int, username: str, order_text: str):
             f.write(f"Username: @{username}\n")
             f.write(f"Текст заказа:\n{order_text}\n")
             f.write("=" * 20 + "\n")
-        logger.info(f"Заказ от пользователя {username} сохранен")
+        logger.info(f"Заказ от пользователя {username} сохранён")
     except Exception as e:
         logger.error(f"Ошибка при сохранении заказа: {e}")
 
-# Функция для сохранения вопроса
+# --- Сохранение вопроса ---
 def save_question(user_id: int, username: str, question_text: str):
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open("questions.txt", "a", encoding="utf-8") as f:
+        with open(bot_data.questions_file, "a", encoding="utf-8") as f:
             f.write(f"\n=== Новый вопрос ===\n")
             f.write(f"Дата: {timestamp}\n")
             f.write(f"ID пользователя: {user_id}\n")
             f.write(f"Username: @{username}\n")
             f.write(f"Вопрос:\n{question_text}\n")
             f.write("=" * 20 + "\n")
-        logger.info(f"Вопрос от пользователя {username} сохранен")
+        logger.info(f"Вопрос от пользователя {username} сохранён")
     except Exception as e:
         logger.error(f"Ошибка при сохранении вопроса: {e}")
 
-# Управление подписчиками
-def add_subscriber(user_id: int, username: str):
+# --- Управление подписчиками ---
+def add_subscriber(user_id: int, username: str, full_name: str):
     try:
-        with open(bot_data.subscribers_file, "a", encoding="utf-8") as f:
-            f.write(f"{user_id}:{username}\n")
-        logger.info(f"Добавлен подписчик: {username}")
-        return True
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with sqlite3.connect(DATABASE) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO subscribers (user_id, username, full_name, subscribed_at)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, username, full_name, timestamp))
+        logger.info(f"Подписчик добавлен: {username}")
     except Exception as e:
-        logger.error(f"Ошибка при добавлении: {e}")
-        return False
+        logger.error(f"Ошибка при добавлении подписчика: {e}")
 
 def remove_subscriber(user_id: int):
     try:
-        subscribers = []
-        with open(bot_data.subscribers_file, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    sub_id, username = line.strip().split(":", 1)
-                    if int(sub_id) != user_id:
-                        subscribers.append(line)
-        with open(bot_data.subscribers_file, "w", encoding="utf-8") as f:
-            f.writelines(subscribers)
-        logger.info(f"Удалён подписчик: {user_id}")
-        return True
+        with sqlite3.connect(DATABASE) as conn:
+            conn.execute("DELETE FROM subscribers WHERE user_id = ?", (user_id,))
+        logger.info(f"Подписчик удалён: {user_id}")
     except Exception as e:
-        logger.error(f"Ошибка при удалении: {e}")
-        return False
+        logger.error(f"Ошибка при удалении подписчика: {e}")
 
 def get_subscribers():
     try:
-        subscribers = []
-        with open(bot_data.subscribers_file, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    sub_id, username = line.strip().split(":", 1)
-                    subscribers.append(int(sub_id))
-        return subscribers
-    except FileNotFoundError:
-        return []
+        with sqlite3.connect(DATABASE) as conn:
+            cursor = conn.execute("SELECT user_id FROM subscribers")
+            return [row[0] for row in cursor.fetchall()]
     except Exception as e:
         logger.error(f"Ошибка при получении подписчиков: {e}")
         return []
 
-# Рассылка уведомлений
+# --- Рассылка ---
 async def send_notification_to_subscribers(message_text: str):
     subscribers = get_subscribers()
     success_count = 0
@@ -388,10 +377,10 @@ async def send_notification_to_subscribers(message_text: str):
             success_count += 1
             await asyncio.sleep(0.1)
         except Exception as e:
-            logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
-    logger.info(f"Уведомление отправлено {success_count} из {len(subscribers)}")
+            logger.error(f"Ошибка отправки пользователю {user_id}: {e}")
+    logger.info(f"Рассылка: {success_count}/{len(subscribers)}")
 
-# Основная клавиатура
+# --- Основная клавиатура ---
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         resize_keyboard=True,
@@ -404,7 +393,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         ]
     )
 
-# Обработчики команд
+# --- Обработчики ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     log_and_notify(message.from_user, "Запустил бота")
@@ -416,7 +405,6 @@ async def cmd_start(message: types.Message):
 async def portfolio_handler(message: types.Message):
     log_and_notify(message.from_user, "Открыл портфолио")
     await message.answer(bot_data.texts["portfolio"])
-    # Кнопки: сначала Tilda, потом три новых — нейросети, программирование, боты
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Figma", url="https://www.figma.com/design/TetYyMheMnoAnRSQiAvhu9/Work-Portfolio?node-id=0-1&t=VfbIusbOFb1gJMm5-1")],
         [InlineKeyboardButton(text="Behance", url="https://www.behance.net/...")],
@@ -465,7 +453,7 @@ async def resume_handler(message: types.Message):
         else:
             await message.answer("⚠️ Файл резюме не найден.")
     except Exception as e:
-        logger.error(f"Error sending resume: {e}")
+        logger.error(f"Ошибка отправки резюме: {e}")
         await message.answer("⚠️ Ошибка при отправке резюме.")
 
 @dp.message(F.text == "Услуги 💼")
@@ -509,19 +497,23 @@ async def faq_handler(message: types.Message):
 
 @dp.message(Command("logs"))
 async def send_logs(message: types.Message):
-    if message.from_user.id == OWNER_ID:
-        try:
-            if os.path.exists("user_activity.log"):
-                await message.answer_document(
-                    FSInputFile("user_activity.log"),
-                    caption="📄 Последние действия пользователей"
-                )
-            else:
-                await message.answer("⚠️ Файл логов не найден.")
-        except Exception as e:
-            await message.answer(f"❌ Ошибка: {e}")
-    else:
+    if message.from_user.id != OWNER_ID:
         await message.answer("🔐 У вас нет доступа к этой команде.")
+        return
+    logs = get_logs_from_db(50)
+    if not logs:
+        await message.answer("📭 Нет записей в логах.")
+        return
+    log_text = "📄 Последние действия:\n\n"
+    for log in logs:
+        log_text += f"[{log['timestamp']}] {log['full_name']} (ID: {log['user_id']}, @{log['username'] or 'нет'}) — {log['action']}\n"
+    if len(log_text) > 4096:
+        with open("temp_logs.txt", "w", encoding="utf-8") as f:
+            f.write(log_text)
+        await message.answer_document(FSInputFile("temp_logs.txt"), caption="Логи")
+        os.remove("temp_logs.txt")
+    else:
+        await message.answer(f"<pre>{log_text}</pre>", parse_mode=ParseMode.HTML)
 
 @dp.message(F.text == "📢 Поделиться ботом")
 async def share_bot_handler(message: types.Message):
@@ -574,13 +566,14 @@ async def order_service_callback(callback: types.CallbackQuery):
     await callback.message.answer(bot_data.texts["order"] + "\n🎁 Скидка 10% при упоминании друга!")
     await callback.answer()
 
-# Запуск бота
+# --- Запуск ---
 async def main():
     try:
-        logger.info("Starting bot...")
+        init_db()
+        logger.info("Бот запускается...")
         await dp.start_polling(bot)
     except Exception as e:
-        logger.critical(f"Bot crashed: {e}")
+        logger.critical(f"Бот упал: {e}")
     finally:
         await bot.session.close()
 
