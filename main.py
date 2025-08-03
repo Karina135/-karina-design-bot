@@ -35,6 +35,8 @@ dp = Dispatcher()
 # 🔐 Укажите ваш Telegram ID, чтобы получать уведомления
 OWNER_ID = 1290042252  # ← Ваш ID (из @userinfobot)
 # Функция для логирования и отправки уведомления владельцу
+
+# Функция для логирования и отправки уведомления владельцу
 async def log_and_notify(user: types.User, action: str):
     try:
         user_info = f"ID: {user.id}, Username: @{user.username if user.username else 'нет'}, Name: {user.full_name}"
@@ -43,7 +45,7 @@ async def log_and_notify(user: types.User, action: str):
         
         # Логируем в файл
         with open("user_activity.log", "a", encoding="utf-8") as f:
-            f.write(log_message + "\n")
+            f.write(log_message + "\n")  # ← Добавлен \n
         logger.info(log_message)
 
         # Отправляем уведомление владельцу
@@ -55,7 +57,7 @@ async def log_and_notify(user: types.User, action: str):
         notify_text += f"📌 <b>Действие:</b> {action}"
 
         try:
-            await bot.send_message(OWNER_ID, notify_text, parse_mode=ParseMode.HTML)
+            await bot.send_message(OWNER_ID, notify_text, parse_mode=ParseMode.HTML)  # ← Добавлен await
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление владельцу: {e}")
 
