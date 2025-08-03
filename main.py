@@ -59,10 +59,15 @@ class BotData:
             "portfolio": """ <b>Мое портфолио</b>
             
 Мои работы в различных направлениях:
+
 • <b>Веб-дизайн</b> - сайты, лендинги
+
 • <b>Графический дизайн</b> - логотипы, брендбуки, инфографика для маркетплейсов, презентации, баннеры
+
 • <b>UI/UX дизайн</b> - мобильные приложения, интерфейсы 
+
 • <b>Программирование и другое</b> - телеграмм-боты, backend сайтов, добавление платежей, подключение домена и т.п. на Tilda
+
 • <b>Работа с нейросетями</b> - генерация картинок и другое""",
             "resume": """📄 <b>Мое резюме</b>
 <u>Опыт работы:</u>
@@ -407,8 +412,8 @@ async def portfolio_handler(message: types.Message):
     log_user_activity(message.from_user, "Открыл портфолио")
     await message.answer(bot_data.texts["portfolio"])
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Figma", url="https://www.figma.com/...")],
-        [InlineKeyboardButton(text="Behance", url="https://www.behance.net/...")],
+        [InlineKeyboardButton(text="Figma", url="https://www.figma.com/design/TetYyMheMnoAnRSQiAvhu9/Work---Portfolio?node-id=0-1&t=VfbIusbOFb1gJMm5-1")],
+        [InlineKeyboardButton(text="Behance", url="https://www.behance.net/karina_design_site")],
         [InlineKeyboardButton(text="Сайты на Tilda", callback_data="tilda_sites")],
         [InlineKeyboardButton(text="Работа с нейросетями", callback_data="ai_work")],
         [InlineKeyboardButton(text="Программирование", callback_data="programming")],
