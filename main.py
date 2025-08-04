@@ -256,7 +256,7 @@ https://t.me/KARINA_DESIGN_SPB_bot
 ✅ Быстро, качественно, в высоком разрешении
 ✅ Уникальные стили под ваш запрос
 
-👉 Перейти к просмотру работу: <a href="https://www.avito.ru/sankt-peterburg/igry_pristavki_i_programmy/generatsiya_izobrazheniy_i_video_cherez_ii_7495771777">Заказать на Avito</a>""",
+👉 Перейти к просмотру работ: <a href="https://www.avito.ru/sankt-peterburg/igry_pristavki_i_programmy/generatsiya_izobrazheniy_i_video_cherez_ii_7495771777">Заказать на Avito</a>""",
             "programming": """💻 <b>Программирование</b>
             
 Опыт в разработке — более 5 лет.
