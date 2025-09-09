@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
 # Токен бота (берётся из переменной окружения)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Инициализация бота
+# Проверка токена перед созданием бота
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN not set in environment variables!")
+    exit(1)  # Завершаем работу с ошибкой
+
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
